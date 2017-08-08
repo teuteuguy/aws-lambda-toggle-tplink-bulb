@@ -1,0 +1,16 @@
+{
+  "name": "aws-lambda-toggle-tplink-bulb",
+  "version": "1.0.0",
+  "description": "Lambda code to toggle a TPLink bulb",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rm lambda-package.zip; npm install; zip lambda-package.zip node_modules index.js"
+  },
+  "author": "teuteuguy",
+  "license": "ISC",
+  "dependencies": {
+    "q": "^1.5.0",
+    "uuid": "^3.1.0"
+  }
+}
