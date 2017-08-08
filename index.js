@@ -1,16 +1,16 @@
 /*
     Make sure you provide as environment variables the following:
     - token: If you don't already have a token, you can run the getToken function with your TPLink Kasa user and password
+    - uuid: The UUID of this lambda function. Get a random one from here: https://www.uuidgenerator.net/version4
 */
 
-
+'use strict';
 console.log('Loading Lambda function');
 console.log('TOKEN:', process.env.token);
-// console.log('BULDURL:', process.env.bulbUrl);
-// console.log('BULDDEVICEID', process.env.bulbDeviceId)
+console.log('UUID:', process.env.uuid);
 
-const Q = require('q');
-const UUID = require('uuid');
+// const Q = require('q');
+// const UUID = require('uuid');
 const http = require('https');
 
 const GLOBAL_TPLINK_URL = 'wap.tplinkcloud.com';
@@ -150,36 +150,34 @@ function setBulbOnOff(deviceUrl, deviceId, on_off, callback) {
 }
 
 function toggleBulbPromise(deviceUrl, deviceId) {
-    var deferred = Q.defer();
 
-    console.log('Toggling device', deviceId, 'on', deviceUrl);
+    return new Promise((resolve, reject) => {
 
-    getSysInfo(deviceUrl, deviceId, (error, response) => {
-        if (error) {
-            // console.error(error);
-            // callback(error);
-            deferred.reject(error);
-        } else {
-            // console.log(response);
-
-            // Light state is on: .light_state.on_off
-            let newState = 1 - response.light_state.on_off;
-
-            setBulbOnOff(deviceUrl, deviceId, newState, (error, response) => {
-                if (error) {
-                    // console.error(error);
-                    // callback(error);
-                    deferred.reject(error);
-                } else {
-                    // console.log(response);
-                    // callback(null, response);
-                    deferred.resolve(response);
-                }
-            });
-        }
+        console.log('Toggling device', deviceId, 'on', deviceUrl);
+    
+        getSysInfo(deviceUrl, deviceId, (error, response) => {
+            if (error) {
+                // console.error(error);
+                reject(error);
+            } else {
+                // console.log(response);
+    
+                // Light state is on: .light_state.on_off
+                let newState = 1 - response.light_state.on_off;
+    
+                setBulbOnOff(deviceUrl, deviceId, newState, (error, response) => {
+                    if (error) {
+                        // console.error(error);
+                        reject(error);
+                    } else {
+                        // console.log(response);
+                        resolve(response);
+                    }
+                });
+            }
+        });
+    
     });
-
-    return deferred.promise;
 }
 
 function toggleBulbOnOff(event, context, callback) {
@@ -199,7 +197,7 @@ function toggleBulbOnOff(event, context, callback) {
             promises.push(toggleBulbPromise(device.url, device.deviceId));
         });
 
-        Q.all(promises).then((responses) => {
+        Promise.all(promises).then((responses) => {
             callback(null, responses);
         }).catch((error) => {
             console.error(error);
