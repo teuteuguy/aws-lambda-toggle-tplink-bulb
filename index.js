@@ -95,7 +95,7 @@ class LB100 {
     }
 
     setBulbOnOffPromise(deviceUrl, deviceId, on_off, brightness) {
-        if (brightness) return httpPostPromise(deviceUrl, LB100.CMD_SET_BULB_WITH_BRIGHTNESS(deviceId, on_off, brightness), process.env.token).then((response) => {
+        if (brightness !== undefined) return httpPostPromise(deviceUrl, LB100.CMD_SET_BULB_WITH_BRIGHTNESS(deviceId, on_off, brightness), process.env.token).then((response) => {
             return JSON.parse(response.result.responseData);
         });
         else return httpPostPromise(deviceUrl, LB100.CMD_SET_BULB(deviceId, on_off), process.env.token).then((response) => {
@@ -111,9 +111,13 @@ class LB100 {
             // console.log(response);
             // Light state is on: .light_state.on_off
             let newState = 1 - response.light_state.on_off;
-            let newBrightness = response.preferred_state.find((state) => {
-                return state.index == preset;
-            }).brightness;
+            let newBrightness;
+            if (preset !== undefined) {
+                newBrightness = response.preferred_state.find((state) => {
+                    return state.index == preset;
+                }).brightness;
+                console.log('Calculating new brightness:', newBrightness, 'for preset', preset);
+            }
             return this.setBulbOnOffPromise(deviceUrl, deviceId, newState, newBrightness);
         });
     }
@@ -123,10 +127,10 @@ class LB100 {
 
 function handler(event, context, callback) {
 
-    console.log('handler: Lambda Received event:', JSON.stringify(event, null, 2));
+    if (event.clickType === 'DOUBLE') event.preset = 0;
+    else if (event.clickType === 'LONG') event.preset = 1;
 
-    if (event.clickType === 'SINGLE') event.preset = 1;
-    else event.preset = 0;
+    console.log('handler: Lambda Received event:', JSON.stringify(event, null, 2));
 
     let lb100 = new LB100();
 
