@@ -48,7 +48,7 @@ function httpPostPromise(url, jsonData, token) {
                 }
             });
         }).on('error', (error) => {
-            console.error('httpPostPromise:', 'Got error in httpPost', JSON.stringify(e, null, 2));
+            console.error('httpPostPromise:', 'Got error in httpPost', JSON.stringify(error, null, 2));
             reject(error);
         });
 
@@ -60,86 +60,75 @@ function httpPostPromise(url, jsonData, token) {
 
 }
 
-// Helper functions
-function CMD_GETTOKEN(user, passwd) { return { method: 'login', params: { appType: 'TPLink Lambda Function', cloudUserName: user, cloudPassword: passwd, terminalUUID: UUID } } };
+class LB100 {
 
-function CMD_GETDEVICES() { return { method: 'getDeviceList' }; }
+    // Helper functions
+    static CMD_GETTOKEN(user, passwd) { return { method: 'login', params: { appType: 'TPLink Lambda Function', cloudUserName: user, cloudPassword: passwd, terminalUUID: process.env.uuid } } };
+    static CMD_GETDEVICES() { return { method: 'getDeviceList' }; }
+    static CMD_PASSTHROUGH(deviceId, requestDataJSON) { return { method: 'passthrough', params: { deviceId: deviceId, requestData: JSON.stringify(requestDataJSON) } }; }
+    static CMD_GETSYSINFO(deviceId) { return LB100.CMD_PASSTHROUGH(deviceId, { system: { get_sysinfo: {} } }); }
+    static CMD_SET_BULB(deviceId, on_off) { return LB100.CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'on_off': on_off } } }); }
+    static CMD_SET_BULB_WITH_BRIGHTNESS(deviceId, on_off, brightness) { return LB100.CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'ignore_default': 1, 'on_off': on_off, 'brightness': brightness } } }); }
+    // static CMD_BULB_ON(deviceId) { return LB100.CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'on_off': 1 } } }); }
+    // static CMD_BULB_OFF(deviceId) { return LB100.CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'on_off': 0 } } }); }
 
-function CMD_PASSTHROUGH(deviceId, requestDataJSON) { return { method: 'passthrough', params: { deviceId: deviceId, requestData: JSON.stringify(requestDataJSON) } }; }
+    getTokenPromise(user, passwd) {
+        return httpPostPromise(GLOBAL_TPLINK_URL, LB100.CMD_GETTOKEN(user, passwd)).then((response) => {
+            return response.result.token;
+        });
+    }
 
-function CMD_GETSYSINFO(deviceId) { return CMD_PASSTHROUGH(deviceId, { system: { get_sysinfo: {} } }); }
+    getDevicesPromise() {
+        return httpPostPromise(GLOBAL_TPLINK_URL, LB100.CMD_GETDEVICES(), process.env.token).then((response) => {
+            return response.result.deviceList;
+        });
+    }
 
-function CMD_SET_BULB(deviceId, on_off) { return CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'on_off': on_off } } }); }
+    getSysInfoPromise(deviceUrl, deviceId) {
+        return httpPostPromise(deviceUrl, LB100.CMD_GETSYSINFO(deviceId), process.env.token).then((response) => {
+            return JSON.parse(response.result.responseData).system.get_sysinfo;
+        });
 
-function CMD_BULB_ON(deviceId) { return CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'on_off': 1 } } }); }
+        // "smartlife.iot.smartbulb.lightingservice": {
+        //   "transition_light_state": { "on_off": on_off, "brightness": brightness } }
+        // {"method":"passthrough", "params": {"deviceId": "Y", "requestData": "{\"smartlife.iot.smartbulb.lightingservice\":{\"transition_light_state\":{\"on_off\":1,\"brightness\":100} } } " } }
+    }
 
-function CMD_BULB_OFF(deviceId) { return CMD_PASSTHROUGH(deviceId, { 'smartlife.iot.smartbulb.lightingservice': { 'transition_light_state': { 'on_off': 0 } } }); }
+    setBulbOnOffPromise(deviceUrl, deviceId, on_off, brightness) {
+        if (brightness) return httpPostPromise(deviceUrl, LB100.CMD_SET_BULB_WITH_BRIGHTNESS(deviceId, on_off, brightness), process.env.token).then((response) => {
+            return JSON.parse(response.result.responseData);
+        });
+        else return httpPostPromise(deviceUrl, LB100.CMD_SET_BULB(deviceId, on_off), process.env.token).then((response) => {
+            return JSON.parse(response.result.responseData);
+        });
+    }
 
-// Functions
-function getTokenPromise(user, passwd) {
-    return httpPostPromise(GLOBAL_TPLINK_URL, CMD_GETTOKEN(user, passwd)).then((response) => {
-        return response.result.token;
-    });
+    toggleBulbPromise(deviceUrl, deviceId, preset) {
+
+        console.log('toggleBulbPromise: Toggling device', deviceId, 'on', deviceUrl, 'with preset', preset);
+
+        return this.getSysInfoPromise(deviceUrl, deviceId).then((response) => {
+            // console.log(response);
+            // Light state is on: .light_state.on_off
+            let newState = 1 - response.light_state.on_off;
+            let newBrightness = response.preferred_state.find((state) => {
+                return state.index == preset;
+            }).brightness;
+            return this.setBulbOnOffPromise(deviceUrl, deviceId, newState, newBrightness);
+        });
+    }
+
 }
 
-// getToken('email', 'password', (error, response) => {
-//     if (error) console.error(error);
-//     else {
-//         console.log(response);
-//     }
-// });
-
-function getDevicesPromise() {
-    return httpPostPromise(GLOBAL_TPLINK_URL, CMD_GETDEVICES(), process.env.token).then((response) => {
-        return response.result.deviceList;
-    });
-}
-
-// getDevices((error, response) => {
-//     if (error) console.error(error);
-//     else {
-//         console.log(response);
-//     }
-// });
-
-function getSysInfoPromise(deviceUrl, deviceId) {
-    return httpPostPromise(deviceUrl, CMD_GETSYSINFO(deviceId), process.env.token).then((response) => {
-        return JSON.parse(response.result.responseData).system.get_sysinfo;
-    });
-
-    // "smartlife.iot.smartbulb.lightingservice": {
-    //   "transition_light_state": { "on_off": on_off, "brightness": brightness } }
-    // {"method":"passthrough", "params": {"deviceId": "Y", "requestData": "{\"smartlife.iot.smartbulb.lightingservice\":{\"transition_light_state\":{\"on_off\":1,\"brightness\":100} } } " } }
-}
-
-// getSysInfo(process.env.bulbUrl, process.env.bulbDeviceId, (error, response) => {
-//     if (error) console.error(error);
-//     else {
-//         console.log(response);
-//     }
-// });
-
-function setBulbOnOffPromise(deviceUrl, deviceId, on_off) {
-    return httpPostPromise(deviceUrl, CMD_SET_BULB(deviceId, on_off), process.env.token).then((response) => {
-        return JSON.parse(response.result.responseData);
-    });
-}
-
-function toggleBulbPromise(deviceUrl, deviceId) {
-
-    console.log('toggleBulbPromise: Toggling device', deviceId, 'on', deviceUrl);
-
-    return getSysInfoPromise(deviceUrl, deviceId).then((response) => {
-        // console.log(response);
-        // Light state is on: .light_state.on_off
-        let newState = 1 - response.light_state.on_off;
-        return setBulbOnOffPromise(deviceUrl, deviceId, newState);
-    });
-}
 
 function handler(event, context, callback) {
 
     console.log('handler: Lambda Received event:', JSON.stringify(event, null, 2));
+
+    if (event.clickType === 'SINGLE') event.preset = 1;
+    else event.preset = 0;
+
+    let lb100 = new LB100();
 
     if (event.devices === undefined) {
         let error = {
@@ -154,7 +143,7 @@ function handler(event, context, callback) {
         let promises = [];
 
         event.devices.forEach((device) => {
-            promises.push(toggleBulbPromise(device.url, device.deviceId));
+            promises.push(lb100.toggleBulbPromise(device.url, device.deviceId, event.preset));
         });
 
         Promise.all(promises).then((responses) => {
@@ -169,3 +158,4 @@ function handler(event, context, callback) {
 }
 
 exports.handler = handler;
+exports.LB100 = LB100;
