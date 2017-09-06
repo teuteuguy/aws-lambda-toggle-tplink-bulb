@@ -74,7 +74,10 @@ class LB100 {
 
     getTokenPromise(user, passwd) {
         return httpPostPromise(GLOBAL_TPLINK_URL, LB100.CMD_GETTOKEN(user, passwd)).then((response) => {
-            return response.result.token;
+            if (response.error_code) {
+                throw Error('Error in getTokenPromise: ' + JSON.stringify(response));
+            }
+            return response.result;
         });
     }
 
@@ -86,6 +89,9 @@ class LB100 {
 
     getSysInfoPromise(deviceUrl, deviceId) {
         return httpPostPromise(deviceUrl, LB100.CMD_GETSYSINFO(deviceId), process.env.token).then((response) => {
+            if (response.error_code) {
+                throw Error('Error in getSysInfoPromise: ' + JSON.stringify(response));
+            }
             return JSON.parse(response.result.responseData).system.get_sysinfo;
         });
 
@@ -127,38 +133,52 @@ class LB100 {
 
 function handler(event, context, callback) {
 
-    if (event.clickType === 'DOUBLE') event.preset = 0;
-    else if (event.clickType === 'LONG') event.preset = 1;
-
-    console.log('handler: Lambda Received event:', JSON.stringify(event, null, 2));
-
     let lb100 = new LB100();
 
-    if (event.devices === undefined) {
-        let error = {
-            message: 'ERROR: event needs to have a Device array of url and deviceId'
-        };
-        console.error(error.message);
-        callback(error);
-    } else {
-
-        console.log('handler: Toggling', event.devices.length, 'devices');
-
-        let promises = [];
-
-        event.devices.forEach((device) => {
-            promises.push(lb100.toggleBulbPromise(device.url, device.deviceId, event.preset));
-        });
-
-        Promise.all(promises).then((responses) => {
-            callback(null, responses);
+    // Configure Test EVENT to have clickType = "TOKEN" to trigger getting a new token from TP Link
+    // clickType = TOKEN
+    // user = user
+    // password = password
+    if (event.clickType === 'TOKEN') {
+        console.log('Getting a new token.');
+        lb100.getTokenPromise(event.user, event.password).then((token) => {
+            callback(null, token);
         }).catch((error) => {
-            console.error(error);
             callback(error);
         });
+        
+    } else {
 
+        if (event.clickType === 'DOUBLE') event.preset = 0;
+        else if (event.clickType === 'LONG') event.preset = 1;
+    
+        console.log('handler: Lambda Received event:', JSON.stringify(event, null, 2));
+
+        if (event.devices === undefined) {
+            let error = {
+                message: 'ERROR: event needs to have a Device array of url and deviceId'
+            };
+            console.error(error.message);
+            callback(error);
+        } else {
+    
+            console.log('handler: Toggling', event.devices.length, 'devices');
+    
+            let promises = [];
+    
+            event.devices.forEach((device) => {
+                promises.push(lb100.toggleBulbPromise(device.url, device.deviceId, event.preset));
+            });
+    
+            Promise.all(promises).then((responses) => {
+                callback(null, responses);
+            }).catch((error) => {
+                console.error(error);
+                callback(error);
+            });
+    
+        }
     }
-
 }
 
 exports.handler = handler;
